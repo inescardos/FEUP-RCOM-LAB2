@@ -187,6 +187,28 @@ int verify_end_of_msg(char* resp){
     return 0;
 }
 
+int verify_server_code(int sockfd,char receive_buf[]){
+    size_t bytes_rcv = 0;
+    int code = 0;
+    while((bytes_rcv = read(sockfd,receive_buf,MAX_FILE_SIZE))){
+        receive_buf[bytes_rcv]='\0';
+        char *bg_line = receive_buf;
+
+        for(int i = 0; i < bytes_rcv; i=strchr(bg_line,'\n')-receive_buf){
+            char number[4];
+            strncpy(number, bg_line, 4);
+            code = atoi(number); 
+        
+            if(bg_line[3] == ' '){
+                return code;
+            }
+            bg_line = &receive_buf[i+1];
+        }
+    };
+
+    return 0;
+}
+
 int main(int argc, char **argv) {
 
     if (argc !=2){
@@ -197,12 +219,6 @@ int main(int argc, char **argv) {
     // parse the url given
     URLelements elems;
     if (parse_URLelements(&elems, argv[1]) != 0) return -1;
-
-    printf( "%s\n",elems.username);
-    printf("%s\n", elems.password);
-    printf("%s\n", elems.hostname);
-    printf("%s\n", elems.url_path);
-    printf("%s\n", elems.filename);
 
     // get the ip adress through the hostname
     char* IPAddress = getIP(elems.hostname);
@@ -224,24 +240,29 @@ int main(int argc, char **argv) {
 
 
     // LOGIN
-    // user
+    // username
     sprintf(cmd, "USER %s\n", elems.username);
     if( write(control_socket, cmd, strlen(cmd)) == 0){
-        printf("ERROR during login");
+        printf("ERROR during login UM");
         return -1;
     }
-    size_t bytes_read = read(control_socket, resp, MAX_FILE_SIZE);
-    resp[bytes_read] = 0;
-    // verificar códigos
+    int server_code = verify_server_code(control_socket, resp);
+    if(server_code == 331){
+        // password
+        sprintf(cmd, "PASS %s\n", elems.password);
+        if( write(control_socket, cmd, strlen(cmd)) == 0){
+            printf("ERROR during login DOIS");
+            return -1;
+        }
+        server_code = verify_server_code(control_socket, resp);
+    }
+    if(server_code != 230){
+        printf("Error during login\n");
+        printf("Server response code%d\n", server_code);
+        return -1;
+    }
+    printf("Successfully logged in\n");
 
-    // password
-    sprintf(cmd, "PASS %s\n", elems.password);
-    if( write(control_socket, cmd, strlen(cmd)) == 0){
-        printf("ERROR during login");
-        return -1;
-    }
-    bytes_read = read(control_socket, resp, MAX_FILE_SIZE);
-    resp[bytes_read] = 0;
 
     // Enter Passive Mode
     strcpy(cmd, "PASV\n");
@@ -249,9 +270,14 @@ int main(int argc, char **argv) {
         printf("ERROR while sending username command");
         return -1;
     }
-    bytes_read = read(control_socket, resp, MAX_FILE_SIZE);
-    resp[bytes_read] = 0;
-
+    server_code = verify_server_code(control_socket, resp);
+    if(server_code != 227){
+        printf("ERROR entering passive mode\n");
+        printf("Server response code%d\n", server_code);
+        return -1;
+    }
+    printf("Entering passive mode\n");
+    
     // parse result
     size_t comma_counter=0, door1 =0, door2 = 0, door = 0;
     for (size_t i = 0; i < strlen(resp) && resp[i] != ')'; i++) {
@@ -283,10 +309,16 @@ int main(int argc, char **argv) {
         printf("ERROR while sending RETR command");
         return -1;
     }
-    bytes_read = read(control_socket, resp, MAX_FILE_SIZE);
-    resp[bytes_read] = 0;
+    server_code = verify_server_code(control_socket, resp);
+    if(server_code != 150){
+        printf("ERROR sending RETR\n");
+        printf("Server response code%d\n", server_code);
+        return -1;
+    }
+    printf("Sending RETR command\n");
 
     // receive file
+    int bytes_read;
     FILE* file = fopen(elems.filename, "wb");
     while( (bytes_read = read(data_socket, resp, MAX_FILE_SIZE)) != 0){
         fwrite(resp, 1, bytes_read, file);
@@ -300,8 +332,7 @@ int main(int argc, char **argv) {
         printf("ERROR while sending RETR command");
         return -1;
     }
-    bytes_read = read(control_socket, resp, MAX_FILE_SIZE);
-    resp[bytes_read] = 0;
+    printf("Quiting\n");
 
     return 0;
 }
