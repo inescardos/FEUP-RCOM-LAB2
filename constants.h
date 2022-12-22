@@ -1,0 +1,4 @@
+#define SERVER_PORT 21
+#define SERVER_ADDR "192.168.28.96"
+#define MAX_URL_SIZE 300
+#define MAX_FILE_SIZE 10000
